@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Inference latency scaling vs. memory bank size $N$. Statistical cosine novelty requires scanning all $N$ vectors ($O(N)$), while LSG computes contextualized classification in constant time ($O(1)$).}
+\label{tab:latency_scaling}
+\begin{tabular}{rccc}
+\toprule
+\textbf{Memory Size ($N$)} & \textbf{Cosine Baseline (ms)} & \textbf{LSG (ms)} & \textbf{Speedup} \\
+\midrule
+10 & 0.140 & \textbf{0.010} & 14.0$\times$ \\
+100 & 0.178 & \textbf{0.010} & 17.8$\times$ \\
+500 & 0.285 & \textbf{0.010} & 28.5$\times$ \\
+1,000 & 0.422 & \textbf{0.010} & 42.2$\times$ \\
+10,000 & 3.850 & \textbf{0.010} & \textbf{385.0$\times$} \\
+\bottomrule
+\end{tabular}
+\end{table}

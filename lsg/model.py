@@ -1,30 +1,41 @@
 """
-LSG ensemble: LogisticRegression + XGBoost + MLPClassifier
-with a per-domain learned linear adapter (projection + bias).
-
-DomainAdapter learns a per-domain bias b and a rank-1 W correction.
-few_shot_adapt() updates both b and W, then recalibrates the decision
-threshold on the few-shot labels — the only place we have target-domain
-ground truth.
-
-fit() trains on the full source data with threshold=0.5 (no source-domain
-threshold leakage to target).
+model.py — LSG stacked tri-model ensemble with Platt calibration and DomainAdapter.
 """
 import numpy as np
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import precision_recall_curve
+from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
+
+from lsg.constants import (
+    EMB_DIM,
+    LR_C,
+    LR_MAX_ITER,
+    MLP_ALPHA,
+    MLP_HIDDEN_SIZES,
+    MLP_MAX_ITER,
+    MLP_VAL_FRACTION,
+    XGB_COL_SAMPLE,
+    XGB_LEARNING_RATE,
+    XGB_MAX_DEPTH,
+    XGB_MIN_CHILD_WEIGHT,
+    XGB_N_ESTIMATORS,
+    XGB_SUBSAMPLE,
+)
 
 
 class DomainAdapter:
-    def __init__(self, emb_dim: int):
+    """Per-domain affine (bias + rank-1) feature-space adapter."""
+
+    def __init__(self, emb_dim: int = EMB_DIM):
         self.emb_dim = emb_dim
         self.W: dict[str, np.ndarray] = {}
         self.b: dict[str, np.ndarray] = {}
-        self.global_mean = np.zeros(emb_dim)
+        self.global_mean: np.ndarray = np.zeros(emb_dim)
 
-    def fit(self, X: np.ndarray, domains: np.ndarray, y: np.ndarray | None = None):
+    def fit(self, X: np.ndarray, domains: np.ndarray) -> "DomainAdapter":
+        """Initialise bias as mean displacement per domain."""
         self.global_mean = X.mean(axis=0)
         for d in np.unique(domains):
             mask = domains == d
@@ -32,13 +43,16 @@ class DomainAdapter:
             self.b[d] = (self.global_mean - X[mask].mean(axis=0)).astype(np.float32)
         return self
 
-    def adapt(self, X: np.ndarray, y: np.ndarray, domain: str,
-              lr: float = 0.05, steps: int = 100):
-        """Gradient-descend b to maximise centroid margin + rank-1 W correction."""
+    def _init_domain(self, domain: str) -> None:
         if domain not in self.b:
             self.b[domain] = np.zeros(self.emb_dim, dtype=np.float32)
             self.W[domain] = np.eye(self.emb_dim, dtype=np.float32)
 
+    def adapt(
+        self, X: np.ndarray, y: np.ndarray, domain: str, lr: float = 0.05, steps: int = 100
+    ) -> "DomainAdapter":
+        """Gradient-descend bias to maximise class centroid margin."""
+        self._init_domain(domain)
         b = self.b[domain].copy().astype(np.float64)
         W = self.W[domain].copy().astype(np.float64)
 
@@ -58,6 +72,7 @@ class DomainAdapter:
         return self
 
     def transform(self, X: np.ndarray, domains: np.ndarray) -> np.ndarray:
+        """Apply per-domain affine transform to input features."""
         out = X.copy().astype(np.float64)
         for d in np.unique(domains):
             mask = domains == d
@@ -67,63 +82,87 @@ class DomainAdapter:
         return out.astype(np.float32)
 
 
+def _build_base_lr() -> LogisticRegression:
+    return LogisticRegression(
+        max_iter=LR_MAX_ITER, C=LR_C, solver="lbfgs", class_weight="balanced"
+    )
+
+
+def _build_base_xgb() -> XGBClassifier:
+    return XGBClassifier(
+        n_estimators=XGB_N_ESTIMATORS, max_depth=XGB_MAX_DEPTH,
+        learning_rate=XGB_LEARNING_RATE, subsample=XGB_SUBSAMPLE,
+        colsample_bytree=XGB_COL_SAMPLE, min_child_weight=XGB_MIN_CHILD_WEIGHT,
+        eval_metric="logloss", tree_method="hist", device="cpu",
+        nthread=1, verbosity=0,
+    )
+
+
+def _build_base_mlp() -> MLPClassifier:
+    return MLPClassifier(
+        hidden_layer_sizes=MLP_HIDDEN_SIZES, max_iter=MLP_MAX_ITER,
+        learning_rate_init=0.001, alpha=MLP_ALPHA,
+        early_stopping=True, validation_fraction=MLP_VAL_FRACTION,
+        random_state=42,
+    )
+
+
 class LSGEnsemble:
-    def __init__(self, use_adapter: bool = True, weights: tuple = (0.25, 0.50, 0.25)):
+    """Stacked tri-model ensemble with optional Platt calibration and DomainAdapter."""
+
+    def __init__(self, use_adapter: bool = True, calibrate: bool = True):
         self.use_adapter = use_adapter
-        self.weights = np.array(weights) / sum(weights)
+        self.calibrate = calibrate
         self.adapter: DomainAdapter | None = None
         self.threshold: float = 0.5
 
-        self.lr = LogisticRegression(
-            max_iter=2000, C=0.5, solver="lbfgs", class_weight="balanced"
-        )
-        self.xgb = XGBClassifier(
-            n_estimators=300, max_depth=5, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.8, min_child_weight=3,
-            eval_metric="logloss", tree_method="hist",
-            device="cpu", nthread=1, verbosity=0,
-        )
-        self.mlp = MLPClassifier(
-            hidden_layer_sizes=(256, 64), max_iter=400,
-            learning_rate_init=0.001, alpha=1e-3,
-            early_stopping=True, validation_fraction=0.1,
-            random_state=42,
-        )
+        lr_base, xgb_base, mlp_base = _build_base_lr(), _build_base_xgb(), _build_base_mlp()
 
+        if calibrate:
+            self.lr = CalibratedClassifierCV(lr_base, cv=3)
+            self.xgb = CalibratedClassifierCV(xgb_base, cv=3)
+            self.mlp = CalibratedClassifierCV(mlp_base, cv=3)
+        else:
+            self.lr, self.xgb, self.mlp = lr_base, xgb_base, mlp_base
+
+        self.meta = LogisticRegression(C=1.0, max_iter=500)
+
+    # ── Private helpers ────────────────────────────────────────────────────────
     def _adapt(self, X: np.ndarray, domains: np.ndarray) -> np.ndarray:
         if self.use_adapter and self.adapter is not None:
             return self.adapter.transform(X, domains)
         return X
 
-    def _raw_proba(self, X_a: np.ndarray) -> np.ndarray:
-        p_lr  = self.lr.predict_proba(X_a)[:, 1]
-        p_xgb = self.xgb.predict_proba(X_a)[:, 1]
-        p_mlp = self.mlp.predict_proba(X_a)[:, 1]
-        return self.weights[0] * p_lr + self.weights[1] * p_xgb + self.weights[2] * p_mlp
+    def _base_proba_matrix(self, X_adapted: np.ndarray) -> np.ndarray:
+        """Return (N, 3) matrix of base-learner positive-class probabilities."""
+        return np.column_stack([
+            self.lr.predict_proba(X_adapted)[:, 1],
+            self.xgb.predict_proba(X_adapted)[:, 1],
+            self.mlp.predict_proba(X_adapted)[:, 1],
+        ])
 
-    def fit(self, X: np.ndarray, y: np.ndarray, domains: np.ndarray):
-        if len(np.unique(y)) < 2:
-            raise ValueError(f"Training data must have both classes; got: {np.unique(y)}")
-        X_np = np.asarray(X)
-        y_np = np.asarray(y)
-        d_np = np.asarray(domains)
+    # ── Public API ─────────────────────────────────────────────────────────────
+    def fit(self, X: np.ndarray, y: np.ndarray, domains: np.ndarray) -> "LSGEnsemble":
+        """Train base learners + meta-learner. Optionally fit DomainAdapter."""
+        X_np, y_np, d_np = np.asarray(X), np.asarray(y), np.asarray(domains)
         if self.use_adapter:
-            self.adapter = DomainAdapter(X_np.shape[1]).fit(X_np, d_np, y_np)
+            self.adapter = DomainAdapter(X_np.shape[1]).fit(X_np, d_np)
         X_a = self._adapt(X_np, d_np)
         self.lr.fit(X_a, y_np)
         self.xgb.fit(X_a, y_np)
         self.mlp.fit(X_a, y_np)
-        self.threshold = 0.5   # reset; calibrated only when target labels available
+        self.meta.fit(self._base_proba_matrix(X_a), y_np)
+        self.threshold = 0.5
         return self
 
-    def few_shot_adapt(self, X: np.ndarray, y: np.ndarray, domain: str):
-        """Update adapter for `domain`, then calibrate threshold on the few-shot labels."""
+    def few_shot_adapt(self, X: np.ndarray, y: np.ndarray, domain: str) -> "LSGEnsemble":
+        """Update DomainAdapter with few-shot examples and recalibrate threshold."""
         if self.adapter is None:
             self.adapter = DomainAdapter(X.shape[1])
         self.adapter.adapt(X, y, domain)
-        # Calibrate threshold using the few-shot target labels
-        d_arr = np.array([domain] * len(X))
-        probs = self._raw_proba(self._adapt(X, d_arr))
+
+        d_arr = np.full(len(X), domain)
+        probs = self.predict_proba(X, d_arr)
         if len(np.unique(y)) == 2:
             prec, rec, thresholds = precision_recall_curve(y, probs)
             f1s = 2 * prec * rec / (prec + rec + 1e-9)
@@ -131,8 +170,13 @@ class LSGEnsemble:
         return self
 
     def predict_proba(self, X: np.ndarray, domains: np.ndarray) -> np.ndarray:
-        return self._raw_proba(self._adapt(X, domains))
+        """Return calibrated STORE probability for each turn."""
+        X_a = self._adapt(np.asarray(X), np.asarray(domains))
+        return self.meta.predict_proba(self._base_proba_matrix(X_a))[:, 1]
 
-    def predict(self, X: np.ndarray, domains: np.ndarray, threshold: float | None = None) -> np.ndarray:
+    def predict(
+        self, X: np.ndarray, domains: np.ndarray, threshold: float | None = None
+    ) -> np.ndarray:
+        """Return binary STORE/IGNORE decisions."""
         thr = threshold if threshold is not None else self.threshold
         return (self.predict_proba(X, domains) >= thr).astype(int)

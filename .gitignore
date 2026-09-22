@@ -26,3 +26,5 @@ env/
 *.fls
 *.fdb_latexmk
 
+# Agent skills & customizations
+.agents/

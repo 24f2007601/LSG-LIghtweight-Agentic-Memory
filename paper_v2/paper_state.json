@@ -1,0 +1,24 @@
+{
+  "mode": "full-paper",
+  "stage": "completed",
+  "venue": "IEEE Transactions on Artificial Intelligence / NeurIPS 2026",
+  "paper_title": "LSG: A Lightweight Supervised Gate for Sub-Millisecond Agentic Memory Novelty Filtering",
+  "output_dir": "paper_v2/",
+  "main_tex": "paper_v2/paper/main.tex",
+  "bib_file": "paper_v2/paper/references.bib",
+  "required_artifacts": [
+    "paper_story.md",
+    "claim_evidence_map.md",
+    "repo_inventory.md",
+    "missing_experiments.md",
+    "literature/positioning.md",
+    "citation_verification.md",
+    "review_report.md",
+    "build_check.md"
+  ],
+  "blockers": [],
+  "build_record": {
+    "status": "passed_quality_gates",
+    "last_check": "2026-09-22"
+  }
+}
