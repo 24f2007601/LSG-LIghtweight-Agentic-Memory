@@ -148,8 +148,37 @@ def run() -> None:
 
 
 def run_adaptation_curve() -> None:
-    """Placeholder: few-shot adaptation curve sweep."""
-    print("Adaptation curve executed successfully.")
+    """Execute few-shot adaptation curve sweep across sample sizes."""
+    print("Running few-shot adaptation curve sweep...")
+    df_all, X, _, y, domains = _load_and_embed()
+    splits = _build_splits(X, y, domains)
+
+    src_tr, pc_pool, pc_te = splits["src_tr"], splits["pc_pool"], splits["pc_te"]
+    X_src_tr, y_src_tr, d_src_tr = X[src_tr], y[src_tr], domains[src_tr]
+    X_te, y_te, d_te = X[pc_te], y[pc_te], domains[pc_te]
+
+    model = LSGEnsemble(use_adapter=True, calibrate=True)
+    model.fit(X_src_tr, y_src_tr, d_src_tr)
+
+    base_probs = model.predict_proba(X_te, d_te)
+    base_eval = evaluate(y_te, model.predict(X_te, d_te), base_probs)
+
+    adapt_results = [{"n_samples": 0, "auprc": base_eval["auprc"], "ece": base_eval["ece"]}]
+
+    for n in [10, 25, 50, 100]:
+        if n <= len(pc_pool):
+            idx_sub = pc_pool[:n]
+            m_adapt = LSGEnsemble(use_adapter=True, calibrate=True)
+            m_adapt.fit(X_src_tr, y_src_tr, d_src_tr)
+            m_adapt.few_shot_adapt(X[idx_sub], y[idx_sub], DOMAIN_PERSONACHAT)
+            probs = m_adapt.predict_proba(X_te, d_te)
+            ev = evaluate(y_te, m_adapt.predict(X_te, d_te), probs)
+            adapt_results.append({"n_samples": n, "auprc": ev["auprc"], "ece": ev["ece"]})
+
+    out_path = os.path.join(RESULTS_DIR, "adaptation_curve.json")
+    with open(out_path, "w") as fh:
+        json.dump(adapt_results, fh, indent=2)
+    print(f"Adaptation sweep results saved to {out_path}: {adapt_results}")
 
 
 def run_rigorous() -> None:

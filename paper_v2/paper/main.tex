@@ -32,7 +32,7 @@
 \maketitle
 
 \begin{abstract}
-Conversational agents powered by large language models must decide which interaction turns to persist in long-term memory. Production systems typically rely on training-free distance heuristics, storing an utterance whenever its cosine similarity to prior entries falls below a fixed threshold. In practice, this heuristic scales linearly ($O(N)$) with memory store size and degenerates into an unselective filter that commits over 99\% of turns, degrading vector index retrieval. Alternatively, prompting small language models (SLMs) to classify memory relevance incurs 45\text{--}90~ms of latency per turn, stalling interactive dialogues. We present \textbf{LSG (Lightweight Supervised Gate)}, a constant-time ($O(1)$) write gate based on a shallow stacked ensemble. LSG combines frozen Sentence-BERT embeddings, short-horizon history pooling, conversational metadata, and Platt-calibrated base classifiers feeding a logistic regression meta-learner. On a held-out cross-domain benchmark evaluated against human intent annotations, LSG requires 0.153~ms of total CPU time per turn (0.143~ms for embedding and 0.010~ms for classification). This represents a $294\times$ latency reduction over Qwen2.5-0.5B and $555\times$ over Llama-3.2-1B at comparable ranking precision (AUPRC 0.569 vs. 0.568\text{--}0.574). Dedicated extraction pipelines such as Mem0 achieve higher AUPRC (0.615) but capture only $20.2\%$ of positive turns while requiring 90.0~ms per decision. While cross-domain covariate shift induces a calibration penalty ($\text{ECE} = 0.401$), LSG preserves monotonic ranking while reducing per-turn gating overhead by multiple orders of magnitude.
+Conversational agents powered by large language models must decide which interaction turns to persist in long-term memory. Production systems typically rely on training-free distance heuristics, storing an utterance whenever its cosine similarity to prior entries falls below a fixed threshold. In practice, this heuristic scales linearly ($O(N)$) with memory store size $N$ and degenerates into an unselective filter that commits over 99\% of turns, degrading vector index retrieval. Alternatively, prompting small language models (SLMs) to classify memory relevance incurs 45\text{--}90~ms of latency per turn, stalling interactive dialogues. We present \textbf{LSG (Lightweight Supervised Gate)}, a write gate with constant-time ($O(1)$) classification complexity relative to memory store size $N$, built on a shallow stacked ensemble. LSG combines frozen Sentence-BERT embeddings, short-horizon history pooling, conversational metadata, and Platt-scaled base classifiers feeding a logistic regression meta-learner. On a held-out cross-domain benchmark evaluated against heuristic intent labels refined via rule-based disambiguation, LSG requires 0.153~ms of total CPU time per turn (0.143~ms for embedding and 0.010~ms for classification). In comparison to simulated SLM decision baselines (calibrated to published 45\text{--}85~ms latencies of Qwen2.5-0.5B and Llama-3.2-1B), LSG offers comparable ranking precision (AUPRC 0.569 vs. 0.568\text{--}0.574) at sub-millisecond execution. While cross-domain covariate shift induces a substantial calibration penalty ($\text{ECE} = 0.401$), Platt scaling preserves monotonic ranking order while reducing per-turn gating overhead by orders of magnitude.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -46,9 +46,9 @@ In production frameworks, write filtering is almost universally delegated to heu
 
 Small language models (SLMs) such as Qwen2.5-0.5B and Llama-3.2-1B, as well as specialized extraction pipelines like Mem0, offer stronger semantic discrimination. However, invoking a language model on every dialogue turn adds 45\text{--}90~ms of latency on commodity hardware. For streaming, real-time agent runtimes where turn latencies must remain bounded, this computational cost is prohibitive.
 
-We design \textbf{LSG (Lightweight Supervised Gate)}\footnote{Source code and implementation are available at \url{https://github.com/24f2007601/LSG-LIghtweight-Agentic-Memory}}, a constant-time ($O(1)$) write gate tailored for sub-millisecond execution on standard CPU hardware. LSG pools Sentence-BERT~\cite{reimers2019sentence} embeddings across a short history window ($K=2$), extracts five conversational metadata signals (speaker role, pronoun density, utterance length, question markers, and entity mentions), and passes the concatenated representation to a stacked ensemble comprising logistic regression, gradient-boosted decision trees (XGBoost), and a multilayer perceptron. Each base classifier undergoes cross-validated Platt scaling before a second-stage logistic regression meta-learner produces the final write probability.
+We design \textbf{LSG (Lightweight Supervised Gate)}\footnote{Source code and implementation are available at \url{https://github.com/24f2007601/LSG-LIghtweight-Agentic-Memory}}, an agentic write gate providing constant $O(1)$ classifier decision complexity relative to memory store size $N$ for sub-millisecond execution on standard CPU hardware. LSG pools Sentence-BERT~\cite{reimers2019sentence} embeddings across a short history window ($K=2$), extracts five conversational metadata signals (speaker role, pronoun density, utterance length, question markers, and entity mentions), and passes the concatenated representation to a stacked ensemble comprising logistic regression, gradient-boosted decision trees (XGBoost), and a multilayer perceptron. Each base classifier undergoes cross-validated Platt scaling before a second-stage logistic regression meta-learner produces the final write probability.
 
-In cross-domain evaluation on held-out PersonaChat turns evaluated against annotated human intent labels, LSG achieves an end-to-end latency of $0.153\text{ ms}$ per turn on a single CPU thread ($0.143\text{ ms}$ for feature encoding and $0.010\text{ ms}$ for ensemble classification). This delivers a $294\times$ speedup over Qwen2.5-0.5B and $555\times$ over Llama-3.2-1B while achieving comparable ranking quality ($\text{AUPRC} = 0.569$ vs. $0.568\text{--}0.574$; $\text{ROC-AUC} = 0.566$ vs. $0.529\text{--}0.533$). While extractive pipelines like Mem0 deliver high precision and AUPRC ($0.615$), they record an omission rate near $80\%$ ($\text{Recall} = 0.202$) at $580\times$ higher latency ($90.0\text{ ms}$). We also examine the interaction between post-hoc Platt calibration and cross-domain covariate shift, identifying how distribution changes across dialogue genres affect confidence estimation.
+In cross-domain evaluation on held-out PersonaChat turns evaluated against intent labels refined through rule-based heuristics and perturbation, LSG achieves an end-to-end latency of $0.153\text{ ms}$ per turn on a single CPU thread ($0.143\text{ ms}$ for feature encoding and $0.010\text{ ms}$ for ensemble classification). Gating execution itself scales at $O(1)$ with respect to memory bank size $N$, contrasting with the $O(N)$ dot-product scan required by cosine similarity. Compared to simulated SLM reference gates reflecting Qwen2.5-0.5B and Llama-3.2-1B latency profiles, LSG achieves comparable ranking quality ($\text{AUPRC} = 0.569$ vs. $0.568\text{--}0.574$; $\text{ROC-AUC} = 0.566$ vs. $0.529\text{--}0.533$) at orders-of-magnitude lower execution cost. While extractive fact-filtering pipelines (such as Mem0) deliver high precision ($0.960$), they capture only $20.2\%$ of positive conversational turns. We also examine the interaction between post-hoc Platt calibration and cross-domain covariate shift, identifying how distribution changes across dialogue genres degrade empirical confidence calibration.
 
 \section{Related Work}
 
@@ -70,7 +70,7 @@ We evaluate gating mechanisms across four primary dimensions:
     \begin{equation}
         \text{Utility} = \text{Precision} - \lambda \cdot \text{Write Rate}
     \end{equation}
-    where $\text{Write Rate} = \frac{1}{T}\sum_{t=1}^T \hat{y}_t$ and $\lambda \in [0, 1]$ parameterizes the cost of vector store bloat. We fix $\lambda = 0.3$ to reflect typical indexing overhead, storage cost, and retrieval token inflation relative to precision.
+    where $\text{Write Rate} = \frac{1}{T}\sum_{t=1}^T \hat{y}_t$ and $\lambda \in [0, 1]$ serves as a parameterized penalty for vector store expansion and downstream token overhead. In our headline evaluation we set $\lambda = 0.3$ as a representative operating penalty, acknowledging it as a modeler-defined proxy rather than an empirical production constant.
     \item \textbf{Calibration \& Latency}: Expected Calibration Error (ECE) across $M=10$ equal-frequency confidence bins, and per-turn wall-clock latency divided into end-to-end processing ($t_{\text{turn}} = t_{\text{embed}} + t_{\text{clf}}$) and isolated classifier forward execution ($t_{\text{clf}}$).
 \end{enumerate}
 
@@ -85,45 +85,52 @@ where $\gamma = 0.7$. We concatenate $\mathbf{h}_t$ ($384$-dim) with a $5$-dimen
 \begin{equation}
     \mathbf{m}_t = [\text{role}_t, \text{len}_t, \text{is\_question}_t, \text{pronoun\_count}_t, \text{has\_entity}_t]
 \end{equation}
-forming the unified feature representation $\mathbf{z}_t = [\mathbf{h}_t \,\|\, \mathbf{m}_t] \in \mathbb{R}^{389}$.
+forming the unified feature representation $\mathbf{z}_t = [\mathbf{h}_t \,\|\, \mathbf{m}_t] \in \mathbb{R}^{389}$. Each component of $\mathbf{m}_t$ is encoded deterministically:
+\begin{itemize}
+    \item $\text{role}_t \in \{0.0, 1.0\}$: binary indicator representing speaker identity ($1.0$ for user turns, $0.0$ for system responses; defaults to $1.0$ if missing).
+    \item $\text{len}_t \in [0.0, 1.0]$: normalized token length, computed as $\min(|x_t|_{\text{words}} / 20.0, 1.0)$.
+    \item $\text{is\_question}_t \in \{0.0, 1.0\}$: interrogative syntax indicator ($1.0$ if $x_t$ contains `?', else $0.0$).
+    \item $\text{pronoun\_count}_t \in [0.0, 1.0]$: first-person pronoun density, computed as $\min(c_{\text{pronoun}} / 5.0, 1.0)$ matching personal references (\textit{I, me, my, mine, we, our, us}).
+    \item $\text{has\_entity}_t \in \{0.0, 1.0\}$: structural entity detector triggering on capitalized proper-noun sequences or formatted slot tokens (`\{\{...\}\}`).
+\end{itemize}
 
-\subsection{Stacked Meta-Learner with Platt Calibration}
-The representation $\mathbf{z}_t$ feeds three base classifiers selected for structural diversity: an $L_2$-regularized logistic regression model for linear boundary separation, gradient-boosted decision trees (XGBoost, 100 estimators, maximum depth 4) to capture non-linear feature interactions, and a single-hidden-layer multilayer perceptron (128 ReLU units with early stopping).
+\subsection{Stacked Meta-Learner with Out-of-Fold Platt Calibration}
+The representation $\mathbf{z}_t$ feeds three base classifiers selected for structural diversity: an $L_2$-regularized logistic regression model for linear boundary separation ($C=0.5$), gradient-boosted decision trees (XGBoost, 300 estimators, maximum depth 5, learning rate 0.05) to capture non-linear feature interactions, and a multilayer perceptron (two hidden layers with 256 and 64 ReLU units, $L_2$ penalty $\alpha=10^{-3}$, early stopping on validation split).
 
-Each base classifier $m \in \{\text{LR}, \text{XGB}, \text{MLP}\}$ is calibrated with 5-fold cross-validated Platt sigmoid scaling:
+To prevent calibration overfitting and label leakage, each base classifier $m \in \{\text{LR}, \text{XGB}, \text{MLP}\}$ is trained and calibrated using 3-fold internal cross-validation on the source training partition ($N_{\text{train}}=1,600$):
 \begin{equation}
     P_m(\mathbf{z}_t) = \frac{1}{1 + \exp(A_m f_m(\mathbf{z}_t) + B_m)}
 \end{equation}
-
-The calibrated probability vector $\mathbf{p}_t = [P_{\text{LR}}, P_{\text{XGB}}, P_{\text{MLP}}]$ is passed to a second-stage Logistic Regression Meta-Learner that computes the final ensemble confidence:
+Following the standard scikit-learn parameterization~\cite{platt1999probabilistic}, parameters $A_m < 0$ and $B_m$ are fitted via maximum likelihood over out-of-fold decision margins. The resulting out-of-fold calibrated probability vector $\mathbf{p}_t = [P_{\text{LR}}, P_{\text{XGB}}, P_{\text{MLP}}]$ is passed to a second-stage Logistic Regression Meta-Learner that optimizes ensemble combination weights:
 \begin{equation}
     \hat{p}_t = \sigma(\mathbf{w}^T \mathbf{p}_t + b)
 \end{equation}
+Crucially, all target-domain PersonaChat test data ($N_{\text{test}}=1,600$) is strictly isolated from model fitting, hyperparameter tuning, and meta-learner training, evaluating true zero-shot cross-domain performance.
 
-\subsection{Domain Adaptation}
-When adapting to a target domain with small annotated samples ($N \le 100$), we introduce a linear projection $\mathbf{W} \in \mathbb{R}^{d \times d}$ and bias vector $\mathbf{b} \in \mathbb{R}^d$:
+\subsection{Domain Adaptation (Proposed Extension)}
+When adapting to a target domain with limited annotated samples ($N \le 100$), an affine transformation can be introduced via a linear projection matrix $\mathbf{W} \in \mathbb{R}^{d \times d}$ and bias vector $\mathbf{b} \in \mathbb{R}^d$:
 \begin{equation}
     \tilde{\mathbf{z}}_t = \mathbf{W} \mathbf{z}_t + \mathbf{b}
 \end{equation}
-where $\mathbf{W}$ is initialized to the identity matrix $\mathbf{I}$ and $\mathbf{b}$ is optimized via few-shot gradient descent to align target-domain class centroids without retraining the ensemble weights.
+where $\mathbf{W}$ is initialized to the identity matrix $\mathbf{I}$ and $\mathbf{b}$ is optimized via few-shot centroid gradient steps to align target-domain class distributions without retraining the ensemble weights. We provide the implementation within the open-source repository as an extensible feature, though the primary experimental benchmark evaluates zero-shot transfer without target fine-tuning.
 
 \begin{table*}[!t]
 \centering
-\caption{Zero-shot evaluation on the held-out PersonaChat test benchmark ($N=1,600$ turns) against human intent labels. Latency denotes end-to-end per-turn CPU inference time ($0.153\text{ ms} = 0.143\text{ ms}$ feature encoding $+ 0.010\text{ ms}$ classifier execution).}
+\caption{Zero-shot evaluation on the held-out PersonaChat test benchmark ($N=1,600$ turns, positive class prevalence: $52.8\%$). SLM and extractive baselines are evaluated using simulated decision gates calibrated to reference latencies. Matched operating points evaluate $F_1$ at fixed recall ($R=0.85$) and fixed precision ($P=0.70$). $O(1)$ indicates classifier decision time independent of memory store size $N$; total CPU time ($0.153\text{ ms}$) includes $0.143\text{ ms}$ feature encoding and $0.010\text{ ms}$ classifier execution.}
 \label{tab:main_results}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}llcccccccc@{}}
+\begin{tabular}{@{}llcccccccccc@{}}
 \toprule
-\textbf{Gating Architecture} & \textbf{Paradigm} & \textbf{Precision} & \textbf{Recall} & $\mathbf{F_1}$ & \textbf{ROC-AUC} & \textbf{AUPRC} & \textbf{ECE} $\downarrow$ & \textbf{Utility} ($\lambda{=}0.3$) & \textbf{Latency (ms)} \\
+\textbf{Gating Architecture} & \textbf{Paradigm} & \textbf{Precision} & \textbf{Recall} & $\mathbf{F_1}$ & $\mathbf{F_1@R_{.85}}$ & $\mathbf{F_1@P_{.70}}$ & \textbf{Write Rate} & \textbf{ROC-AUC} & \textbf{AUPRC} & \textbf{ECE} $\downarrow$ & \textbf{Latency (ms)} \\
 \midrule
-\textit{Statistical Cosine Baseline} & Heuristic & 0.528 & \textbf{0.992} & 0.689 & 0.428 & 0.463 & 0.238 & 0.231 & 8.614 ($O(N)$) \\
-\textit{Entropy Gate (Perplexity)} & Heuristic & 0.524 & 0.974 & 0.681 & 0.445 & 0.503 & 0.191 & 0.229 & 12.000 \\
-\textit{Qwen2.5-0.5B-Instruct} & SLM & 0.535 & 0.647 & 0.586 & 0.533 & 0.574 & \textbf{0.151} & 0.344 & 45.000 \\
-\textit{Llama-3.2-1B-Instruct} & SLM & 0.532 & 0.661 & 0.590 & 0.529 & 0.568 & 0.159 & 0.336 & 85.000 \\
-\textit{Mem0 Fact Extractor} & SLM & \textbf{0.960} & 0.202 & 0.334 & \textbf{0.596} & \textbf{0.615} & 0.294 & \textbf{0.927} & 90.000 \\
+\textit{Statistical Cosine Baseline} & Heuristic & 0.528 & \textbf{0.992} & 0.689 & 0.645 & 0.004 & 0.991 & 0.428 & 0.463 & 0.238 & 8.614 ($O(N)$) \\
+\textit{Entropy Gate (Simulated)} & Heuristic & 0.524 & 0.974 & 0.681 & 0.636 & \textbf{0.691} & 0.983 & 0.445 & 0.503 & 0.191 & 12.000 \\
+\textit{Qwen2.5-0.5B-Instruct (Sim.)} & SLM Ref. & 0.535 & 0.647 & 0.586 & 0.647 & 0.096 & 0.638 & 0.533 & 0.574 & \textbf{0.151} & 45.000 \\
+\textit{Llama-3.2-1B-Instruct (Sim.)} & SLM Ref. & 0.532 & 0.661 & 0.590 & 0.648 & 0.015 & 0.655 & 0.529 & 0.568 & 0.159 & 85.000 \\
+\textit{Mem0 Fact Extractor (Sim.)} & Extractive & \textbf{0.960} & 0.202 & 0.334 & \textbf{0.690} & 0.690 & \textbf{0.111} & \textbf{0.596} & \textbf{0.615} & 0.294 & 90.000 \\
 \midrule
-\textbf{LSG Stacked Calibrated} & Supervised & 0.529 & 0.924 & 0.673 & 0.566 & 0.569 & 0.401 & 0.253 & \textbf{0.153} ($O(1)$) \\
-\textbf{LSG Multi-Turn Context} & Supervised & 0.527 & 0.998 & \textbf{0.690} & 0.549 & 0.562 & 0.446 & 0.228 & \textbf{0.149} ($O(1)$) \\
+\textbf{LSG Stacked Calibrated} & Supervised & 0.529 & 0.924 & 0.673 & 0.661 & 0.345 & 0.921 & 0.566 & 0.569 & 0.401 & \textbf{0.153} ($O(1)$) \\
+\textbf{LSG Multi-Turn Context} & Supervised & 0.527 & 0.998 & \textbf{0.690} & 0.655 & 0.306 & 0.998 & 0.549 & 0.562 & 0.446 & \textbf{0.149} ($O(1)$) \\
 \bottomrule
 \end{tabular}%
 }
@@ -132,20 +139,24 @@ where $\mathbf{W}$ is initialized to the identity matrix $\mathbf{I}$ and $\math
 \section{Experimental Evaluation}
 
 \subsection{Experimental Setup}
-We train LSG on the Bitext Customer Support dataset ($2,000$ turns) and evaluate zero-shot transfer on the held-out PersonaChat test benchmark~\cite{zhang2018personachat} ($1,600$ turns). To eliminate circular evaluation against rule-based regex heuristics, all test turns are evaluated against human intent annotations verified via an LLM-as-a-Judge simulation protocol yielding high inter-annotator agreement (Cohen's $\kappa = 0.84$). All latency benchmarks were measured on a single thread of an Intel Core i7-13700H CPU @ 3.4 GHz with 32 GB RAM, without GPU acceleration, to reflect realistic, CPU-bound agent runtimes. Classifiers and Platt calibration routines are implemented in scikit-learn.
+We train LSG on the Bitext Customer Support dataset ($2,000$ turns) and evaluate zero-shot transfer on the held-out PersonaChat test benchmark~\cite{zhang2018personachat} ($1,600$ test turns, with a disjoint $200$-turn few-shot pool). Dataset splits are partitioned deterministically using stratified sampling with $\text{seed}=42$ ($80/20$ train/validation split on source data). To evaluate gating discrimination without circular reliance on simple keyword matches, target labels are generated through a two-stage heuristic procedure: initial pattern-based extraction identifies personal attributes, commitments, and dialogue slots, which are subsequently refined by targeted contextual disambiguation rules (e.g., reclassifying speculative expressions like \textit{"thinking about"} or \textit{"someday"} from positive to negative). Comparing initial pattern assignments with disambiguated labels yields a chance-corrected agreement of Cohen's $\kappa = 0.84$, with contextual rules modifying $8.1\%$ of the original candidate labels. Finally, to simulate annotator disagreement and test tolerance to label noise, a controlled $3\%$ random label inversion is applied post-disambiguation ($\text{seed}=42$) to produce the definitive ground-truth benchmark labels.
 
-We evaluate LSG against three baseline categories: (1)~\textit{heuristic novelty filters}, comprising pairwise cosine distance scanning against stored records ($O(N)$) and an information-theoretic \textit{Entropy Gate} that scores turn novelty via token-level Shannon entropy~\cite{shannon1948mathematical}, storing utterances whose predictive uncertainty exceeds a threshold; (2)~\textit{generative SLMs}, evaluating instruction-tuned language models (Qwen2.5-0.5B~\cite{qwen2024qwen25} and Llama-3.2-1B~\cite{dubey2024llama32}) prompted with zero-shot binary write classification templates; and (3)~\textit{extractive pipelines}, deploying Mem0~\cite{chaudhary2024mem0} for structured entity-relation fact extraction.
+Latency benchmarks were measured on a single thread of an Intel Core i7-13700H CPU @ 3.4 GHz with 32 GB RAM (no GPU acceleration), recorded via high-resolution monotonic timers (\texttt{time.perf_counter()}) across $1,000$ warmup iterations and averaged over the full test sequence. All training scripts, deterministic split indices, serialized prediction matrices, and benchmark evaluation routines are packaged in the open-source repository for complete reproduction.
+
+We compare LSG against three baseline categories: (1)~\textit{heuristic novelty filters}, including pairwise cosine distance scanning against stored records ($O(N)$) and an \textit{Entropy Gate} proxy scoring turn novelty via length-weighted token uncertainty heuristics; (2)~\textit{synthetic SLM reference gates}, implementing probabilistic response distributions calibrated to empirical operational latency benchmarks of instruction-tuned models (Qwen2.5-0.5B~\cite{qwen2024qwen25} at $45.0\text{ ms}$ and Llama-3.2-1B~\cite{dubey2024llama32} at $85.0\text{ ms}$); and (3)~\textit{synthetic extractive fact pipelines}, modeled after Mem0~\cite{chaudhary2024mem0} targeting high-confidence factual assertions at $90.0\text{ ms}$.
 
 \subsection{Main Benchmark Comparison}
-Table~\ref{tab:main_results} compares gating paradigms across discriminative ranking, memory utility, and execution latency.
+Table~\ref{tab:main_results} compares gating paradigms across discriminative ranking, memory utility, and execution latency. Test set positive class prevalence is $52.8\%$.
 
-The statistical cosine baseline achieves an apparent $F_1$ score of $0.689$. However, inspection reveals that it functions as an unselective pass-through gate, yielding a write rate of $99.1\%$ and a recall of $0.992$. Its discriminative ranking is poor ($\text{AUPRC} = 0.463$, $\text{ROC-AUC} = 0.428$), falling below chance on ROC-AUC. Pairwise scanning over the dialogue session introduces an average per-turn latency of $8.614\text{ ms}$, growing linearly as dialogue history accumulates. Similarly, the entropy gate achieves high recall ($0.974$) but weak discrimination ($\text{AUPRC} = 0.503$, $\text{ROC-AUC} = 0.445$), confirming that surface-level token uncertainty does not reliably separate persistent user profile state from generic chit-chat.
+The statistical cosine baseline achieves an apparent $F_1$ score of $0.689$. However, it functions as an unselective pass-through gate, yielding a write rate of $99.1\%$ and a recall of $0.992$. Its discriminative ranking is poor ($\text{AUPRC} = 0.463$, $\text{ROC-AUC} = 0.428$), falling below chance on ROC-AUC. Pairwise scanning over the dialogue session introduces an average per-turn latency of $8.614\text{ ms}$, growing linearly as dialogue history accumulates. Similarly, the entropy gate achieves high recall ($0.974$) with an excessive $98.3\%$ write rate and weak discrimination ($\text{AUPRC} = 0.503$, $\text{ROC-AUC} = 0.445$).
 
-Generative small language models (\texttt{Qwen2.5-0.5B} and \texttt{Llama-3.2-1B}) achieve AUPRC values of $0.574$ and $0.568$, with ROC-AUC scores of $0.533$ and $0.529$. Their per-turn latencies ($45.0\text{ ms}$ and $85.0\text{ ms}$) impose an order-of-magnitude slowdown on interactive agent response times. The extractive \texttt{Mem0} pipeline achieves the highest precision ($0.960$) and AUPRC ($0.615$), yielding high net utility ($0.927$) under aggressive storage penalization ($\lambda=0.3$). This divergence reflects differing architectural objectives: while Mem0 is optimized for extracting explicit, structured factual assertions~\cite{chaudhary2024mem0}, turn-level gating encompasses broader conversational constraints and contextual preferences, resulting in Mem0 capturing only $20.2\%$ of positive turns.
+Simulated small language model baselines achieve AUPRC values of $0.574$ and $0.568$, with ROC-AUC scores of $0.533$ and $0.529$, while writing $63.8\%\text{--}65.5\%$ of turns. The extractive pipeline achieves the highest precision ($0.960$) and lowest write rate ($11.1\%$), yielding a high utility ($0.927$) under storage-penalizing regimes ($\lambda=0.3$); however, this selectivity comes at the cost of capturing only $20.2\%$ of positive turns.
 
-\textbf{LSG Stacked Calibrated} achieves an AUPRC of $0.569$ and ROC-AUC of $0.566$, matching the discriminative performance of 0.5B\text{--}1B parameter SLMs while executing in $0.153\text{ ms}$ total CPU time per turn ($0.143\text{ ms}$ feature encoding and $0.010\text{ ms}$ ensemble classification). This delivers a $294\times$ latency reduction over Qwen2.5-0.5B and $555\times$ over Llama-3.2-1B while maintaining constant $O(1)$ scaling.
+\textbf{LSG Stacked Calibrated} achieves an AUPRC of $0.569$ and ROC-AUC of $0.566$, matching the discriminative ranking performance of the synthetic SLM references while executing in $0.153\text{ ms}$ total CPU time per turn ($0.143\text{ ms}$ feature encoding and $0.010\text{ ms}$ ensemble classification). However, at the fixed classification threshold $\tau = 0.5$, LSG commits $92.1\%$ of turns to storage. Across the $1,600$ test turns ($845$ positive, $755$ negative), LSG captures $781$ true positives (recall $0.924$) but admits $693$ false-positive writes (precision $0.529$, false positive rate $91.8\%$), leaving only $64$ missed positive memories. While this achieves a modest write reduction over the $99.1\%$ unselective cosine baseline, the model prioritizes memory retention over index compression under zero-shot transfer.
 
-In zero-shot transfer, \textbf{LSG Multi-Turn Context} records a higher recall ($0.998$) and $F_1$ ($0.690$), but exhibits slightly reduced AUPRC ($0.562$) and ROC-AUC ($0.549$) compared to the single-turn ensemble. Under severe cross-domain shift (task-oriented customer support to personal dialogue), fixed exponential pooling aggregates unadapted past context, systematically biasing classifier predictions toward positive write decisions (write rate $99.8\%$). Without explicit target-domain alignment, multi-turn pooling propagates contextual distribution shift directly into the gating decision.
+The utility of matched operating points becomes apparent when inspecting fixed-precision performance ($F_1@P_{.70}$): because the statistical cosine baseline cannot achieve $70\%$ precision at any operating threshold without near-total recall collapse, its $F_1@P_{.70}$ drops to $0.004$. In contrast, LSG Stacked Calibrated sustains an $F_1@P_{.70}$ of $0.345$ ($F_1@R_{.85} = 0.661$), confirming that the model's underlying ranking separates high-confidence profile facts from conversational filler far more effectively than uncalibrated distance thresholds.
+
+In zero-shot transfer, \textbf{LSG Multi-Turn Context} records an even higher write rate of $99.8\%$ (recall $0.998$, precision $0.527$), effectively acting as an unselective store. Under severe cross-domain shift (task-oriented customer support to personal dialogue), fixed exponential context pooling aggregates unadapted past tokens, systematically shifting classifier predictions into the positive decision region. Without in-domain threshold recalibration or supervised adaptation, multi-turn pooling compounds covariate shift rather than improving selectivity.
 
 \begin{table}[!t]
 \centering
@@ -172,7 +183,7 @@ Table~\ref{tab:latency_scaling} compares the computational scaling of heuristic 
 \begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{figures/pareto_frontier.png}
-\caption{Accuracy-Latency Pareto frontier evaluated on the PersonaChat benchmark using gold human intent labels. LSG achieves ranking parity with 0.5B\text{--}1B parameter SLMs at sub-millisecond CPU latency.}
+\caption{Accuracy-Latency Pareto frontier evaluated on the PersonaChat benchmark using heuristic intent labels. LSG achieves ranking parity with simulated 0.5B\text{--}1B parameter SLM reference gates at sub-millisecond CPU latency.}
 \label{fig:pareto}
 \end{figure}
 
@@ -184,15 +195,15 @@ Table~\ref{tab:latency_scaling} compares the computational scaling of heuristic 
 \end{figure}
 
 \subsection{Pareto Frontier and Calibration Reliability}
-Fig.~\ref{fig:pareto} summarizes the empirical accuracy-latency trade-offs across all evaluated systems. LSG occupies the favorable lower-left operating region: it avoids the linear latency growth of distance scanning while delivering a $294\times\text{--}555\times$ speedup over generative small language models with matching discriminative ranking.
+Fig.~\ref{fig:pareto} summarizes the empirical accuracy-latency trade-offs across evaluated systems. LSG occupies the favorable lower-left operating region: it avoids the linear latency growth of distance scanning while maintaining comparable discriminative ranking at a fraction of the computational overhead of generative small language model references.
 
 Fig.~\ref{fig:calibration} examines probability calibration on the held-out PersonaChat benchmark. The statistical distance baseline produces scores compressed within $[0.60, 0.85]$, yielding a low apparent error ($\text{ECE} = 0.238$) simply because its predictions hover near test-set prevalence ($52.8\%$). LSG spans the probability range $[0.05, 0.96]$ with monotonic ordering. However, cross-domain distribution shift elevates its calibration error ($\text{ECE} = 0.401$) due to overconfidence in high-probability bins. While Platt scaling preserves monotonic rank ordering within each base classifier, distribution shift across dialogue styles alters the empirical probability scale. This suggests that streaming production runtimes should periodically update Platt scaling parameters using small batches of in-domain interaction data to counteract probability scale drift.
 
 \section{Limitations and Future Work}
-This study establishes several clear boundaries. First, LSG evaluates write filtering on individual interaction turns. Deploying write gates in long-form document agents will require evaluating multi-turn segment summarization rather than turn-level decisions. Second, while shallow ensembles execute orders of magnitude faster than language models, their calibrated probabilities remain vulnerable to severe covariate shift. Developing lightweight, unsupervised test-time calibration methods represents an important direction for future investigation.
+This study establishes several clear boundaries. First, LSG evaluates write filtering on individual interaction turns; deploying write gates in multi-agent or long-document contexts will require evaluating segment-level summarization. Second, while shallow ensembles execute orders of magnitude faster than language models, their calibrated probabilities remain vulnerable to severe covariate shift, as demonstrated by the elevated test ECE ($0.401$). Developing lightweight, unsupervised test-time calibration methods and evaluating full fine-tuned SLM deployments on real-world datasets represent important next steps. Third, our baseline comparisons rely on simulated response distributions calibrated to operational latencies; validating these results against production API endpoints will provide further operational fidelity.
 
 \section{Conclusion}
-Write-time memory gating presents a clear systems trade-off in interactive agent design. Pairwise distance heuristics scale linearly with memory bank size and collapse into unselective pass-through filters, while small language models introduce 45\text{--}90~ms of latency per turn. LSG resolves this tension through a shallow, calibrated stacked ensemble that runs in 0.153~ms on standard CPU hardware with constant-time complexity. The model matches the discriminative ranking quality of 0.5B\text{--}1B parameter language models while eliminating the index bloat of unselective heuristics. By replacing generative token sampling with calibrated shallow classification, conversational agents can suppress vector store bloat while maintaining sub-millisecond execution.
+Write-time memory gating presents a clear systems trade-off between latency, storage bloat, and memory omission. While small language models incur substantial latency overhead (45\text{--}90~ms per turn) and pairwise cosine heuristics scale linearly ($O(N)$) into unselective filters, LSG demonstrates that a shallow, stacked ensemble can execute gating decisions in constant time ($0.010\text{ ms}$) with sub-millisecond end-to-end CPU latency ($0.153\text{ ms}$). At the same time, our empirical evaluation highlights key limitations: zero-shot cross-domain transfer leads to significant calibration drift ($\text{ECE} = 0.401$) and an elevated write rate ($92.1\%$) at default operating thresholds, favoring retention over index pruning. Consequently, while shallow ensembles provide an ultra-low-latency architecture for continuous dialogue streams, realizing selective memory compression requires active in-domain recalibration or explicit threshold optimization.
 
 \begin{thebibliography}{13}
 
@@ -230,7 +241,7 @@ S.~Zhang, E.~Dinan, J.~Urbanek, A.~Szlam, D.~Kiela, and J.~Weston, ``Personalizi
 C.~E. Shannon, ``A mathematical theory of communication,'' \emph{Bell Syst. Tech. J.}, vol.~27, no.~3, pp. 379--423, 1948.
 
 \bibitem{qwen2024qwen25}
-{Qwen Team}, ``{Qwen2.5} technical report,'' \emph{arXiv preprint arXiv:2412.15115}, 2024.
+Qwen Team, ``Qwen2.5 technical report,'' \emph{arXiv preprint}, arXiv:2412.15115, 2024.
 
 \bibitem{dubey2024llama32}
 A.~Dubey \emph{et~al.}, ``The {Llama} 3 herd of models,'' \emph{arXiv preprint arXiv:2407.21783}, 2024.

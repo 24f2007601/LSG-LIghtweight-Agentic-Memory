@@ -1,20 +1,21 @@
+
 \begin{table*}[!t]
 \centering
-\caption{Zero-shot evaluation on the held-out PersonaChat test benchmark ($N=1,600$ turns) against human intent labels. Latency denotes end-to-end per-turn CPU inference time ($0.153\text{ ms} = 0.143\text{ ms}$ feature encoding $+ 0.010\text{ ms}$ classifier execution).}
+\caption{Zero-shot evaluation on the held-out PersonaChat test benchmark ($N=1,600$ turns, positive class prevalence: $52.8\%$). SLM and extractive baselines are evaluated using simulated decision gates calibrated to reference latencies. Matched operating points evaluate $F_1$ at fixed recall ($R=0.85$) and fixed precision ($P=0.70$). $O(1)$ indicates classifier decision time independent of memory store size $N$; total CPU time ($0.153\text{ ms}$) includes $0.143\text{ ms}$ feature encoding and $0.010\text{ ms}$ classifier execution.}
 \label{tab:main_results}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}llcccccccc@{}}
+\begin{tabular}{@{}llcccccccccc@{}}
 \toprule
-\textbf{Gating Architecture} & \textbf{Paradigm} & \textbf{Precision} & \textbf{Recall} & $\mathbf{F_1}$ & \textbf{ROC-AUC} & \textbf{AUPRC} & \textbf{ECE} $\downarrow$ & \textbf{Utility} ($\lambda{=}0.3$) & \textbf{Latency (ms)} \\
+\textbf{Gating Architecture} & \textbf{Paradigm} & \textbf{Precision} & \textbf{Recall} & $\mathbf{F_1}$ & $\mathbf{F_1@R_{.85}}$ & $\mathbf{F_1@P_{.70}}$ & \textbf{Write Rate} & \textbf{ROC-AUC} & \textbf{AUPRC} & \textbf{ECE} $\downarrow$ & \textbf{Latency (ms)} \\
 \midrule
-\textit{Statistical Cosine Baseline} & Heuristic & 0.528 & \textbf{0.992} & 0.689 & 0.428 & 0.463 & 0.238 & 0.231 & 8.614 ($O(N)$) \\
-\textit{Entropy Gate (Perplexity)} & Heuristic & 0.524 & 0.974 & 0.681 & 0.445 & 0.503 & 0.191 & 0.229 & 12.000 \\
-\textit{Qwen2.5-0.5B-Instruct} & SLM & 0.535 & 0.647 & 0.586 & 0.533 & 0.574 & \textbf{0.151} & 0.344 & 45.000 \\
-\textit{Llama-3.2-1B-Instruct} & SLM & 0.532 & 0.661 & 0.590 & 0.529 & 0.568 & 0.159 & 0.336 & 85.000 \\
-\textit{Mem0 Fact Extractor} & SLM & \textbf{0.960} & 0.202 & 0.334 & \textbf{0.596} & \textbf{0.615} & 0.294 & \textbf{0.927} & 90.000 \\
+\textit{Statistical Cosine Baseline} & Heuristic & 0.528 & \textbf{0.992} & 0.689 & 0.645 & 0.004 & 0.991 & 0.428 & 0.463 & 0.238 & 8.614 ($O(N)$) \\
+\textit{Entropy Gate (Simulated)} & Heuristic & 0.524 & 0.974 & 0.681 & 0.636 & \textbf{0.691} & 0.983 & 0.445 & 0.503 & 0.191 & 12.000 \\
+\textit{Qwen2.5-0.5B-Instruct (Sim.)} & SLM Ref. & 0.535 & 0.647 & 0.586 & 0.647 & 0.096 & 0.638 & 0.533 & 0.574 & \textbf{0.151} & 45.000 \\
+\textit{Llama-3.2-1B-Instruct (Sim.)} & SLM Ref. & 0.532 & 0.661 & 0.590 & 0.648 & 0.015 & 0.655 & 0.529 & 0.568 & 0.159 & 85.000 \\
+\textit{Mem0 Fact Extractor (Sim.)} & Extractive & \textbf{0.960} & 0.202 & 0.334 & \textbf{0.690} & 0.690 & \textbf{0.111} & \textbf{0.596} & \textbf{0.615} & 0.294 & 90.000 \\
 \midrule
-\textbf{LSG Stacked Calibrated} & Supervised & 0.529 & 0.924 & 0.673 & 0.566 & 0.569 & 0.401 & 0.253 & \textbf{0.153} ($O(1)$) \\
-\textbf{LSG Multi-Turn Context} & Supervised & 0.527 & 0.998 & \textbf{0.690} & 0.549 & 0.562 & 0.446 & 0.228 & \textbf{0.149} ($O(1)$) \\
+\textbf{LSG Stacked Calibrated} & Supervised & 0.529 & 0.924 & 0.673 & 0.661 & 0.345 & 0.921 & 0.566 & 0.569 & 0.401 & \textbf{0.153} ($O(1)$) \\
+\textbf{LSG Multi-Turn Context} & Supervised & 0.527 & 0.998 & \textbf{0.690} & 0.655 & 0.306 & 0.998 & 0.549 & 0.562 & 0.446 & \textbf{0.149} ($O(1)$) \\
 \bottomrule
 \end{tabular}%
 }
